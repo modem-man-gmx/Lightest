@@ -81,23 +81,6 @@ inline double TimeToMs(clock_t time) {
   return double(time) / CLOCKS_PER_SEC * 1000;
 }
 
-void PrintFinal(bool failed, clock_t duration) {
-  if (lightest::toOutput) {
-    if (failed) {
-      SetColor(Color::Red);
-      cout << " **FAILED** ";
-    } else {
-      SetColor(Color::Green);
-      cout << " ++PASSED++ ";
-    }
-    SetColor(Color::Reset);
-  } else {
-    cout << "finished " << (failed?"with failure,": "successfully,");
-  }
-  cout << " " << TimeToMs(duration) << " ms used." << endl;
-}
-
-
 // All test data classes should extend from Data
 class Data {
  public:
@@ -126,29 +109,13 @@ class Data {
 // Recursively call Print() to output
 class DataSet : public Data {
  public:
-  DataSet(const char* name_) : failed(false), name(name_), duration(0) {}
+  DataSet(const char* name) { this->name = name, duration = 0; }
   void Add(Data* son) {
     son->SetTabs(GetTabs() + 1);
-	#if defined (DEBUG) && (DEBUG & 0x01)
-	bool old_failed = failed;
-	#endif
     if (son->GetFailed()) failed = true;
-	#if defined (DEBUG) && (DEBUG & 0x01)
-    son->PrintTabs();
-    std::cerr << "Add test result to '" << name
-              << "' adds failed=" << (failed?"fail":"okay")
-              << " to this->failed=" << (old_failed?"fail":"okay")
-              << std::endl;
-	#endif
     sons.push_back(son);
   }
   void End(bool failed, clock_t duration) {
-	#if defined (DEBUG) && (DEBUG & 0x02)
-    std::cerr << "End of " << ((sons.empty()?"leaf":"node")) << " \"" << name
-              << "\" adds failed=" << (failed?"fail":"okay")
-              << " to this->failed=" << (this->failed?"fail":"okay")
-              << std::endl;
-	#endif
     this->failed = failed || this->failed;
     this->duration = duration;
   }
@@ -176,24 +143,7 @@ class DataSet : public Data {
     cout << " " << name << " " << TimeToMs(duration) << " ms" << endl;
   }
   DataType Type() const { return DATA_SET; }
-  const bool GetFailed() const {
-	#if defined (DEBUG) && (DEBUG & 0x04)
-    std::cerr << "GetFailed of '" << name << "' reports: " << (failed?"fail":"okay") << std::endl;
-	#endif
-	#if defined (DEBUG) && (DEBUG & 0x08)
-    for (const Data* item : sons) {
-      bool sub_failed = item->GetFailed();
-      std::cerr << "  GetFailed of son reports: " << (sub_failed?"fail":"okay") << std::endl;
-    }
-	#endif
-    // >>> likely a dirty hack here, because globalRegisterData.testData should get siblings result from other way, but somehow it comes to late?
-    bool fixup_failed = failed;
-    for (const Data* item : sons) {
-      fixup_failed |= item->GetFailed();
-    }
-    // <<< dirty hack end
-    return fixup_failed;
-  }
+  const bool GetFailed() const { return failed; }
   clock_t GetDuration() const { return duration; }
   const char* GetName() const { return name; }
   // Should offer a callback to iterate test actions and sub tests' data
@@ -210,10 +160,10 @@ class DataSet : public Data {
 
  private:
   bool failed;
-  const char* name;
   clock_t duration;
   // Data of test actions and sub tests
   vector<const Data*> sons;
+  const char* name;
 };
 
 // Data classes for test actions should to extend from DataUnit,
@@ -284,7 +234,7 @@ class Register {
   void RunRegistered() {
     Context ctx = Context{testData, argn, argc};
     for (const signedFuncWrapper& item : registerList) {
-      item.callerFunc(ctx); // would it not be best to have the OK/FAIL return here and keep it in private: bool failed; ?
+      item.callerFunc(ctx);
     }
   }
   // Restore argn & argc for CONFIG
@@ -305,9 +255,9 @@ class Register {
 int Register::argn = 0;
 char** Register::argc = nullptr;
 
-Register globalRegisterConfig("((Config))");
-Register globalRegisterTest("[[Test]]");
-Register globalRegisterData("{{Data}}");
+Register globalRegisterConfig("");
+Register globalRegisterTest("");
+Register globalRegisterData("");
 
 class Registering {
  public:
@@ -349,8 +299,8 @@ class Testing {
   }
 
  private:
-  const clock_t start;  // No need to report.
   const unsigned int level;
+  const clock_t start;  // No need to report.
   bool failed;
   Register reg;
 };
@@ -410,7 +360,6 @@ class Testing {
 /* ========== Main ========== */
 
 int main(int argn, char* argc[]) {
-  bool final_failure(true);
   // Offer arn & argc for CONFIG
   lightest::Register::SetArg(argn, argc);
   // Only test registerer need this, for test data will only be added in test
@@ -428,11 +377,15 @@ int main(int argn, char* argc[]) {
   if (lightest::toOutput) {
     lightest::globalRegisterData.testData->PrintSons();
   }
-  final_failure = lightest::globalRegisterData.testData->GetFailed();
-  lightest::PrintFinal(final_failure, clock());
-  return final_failure ? 1 : 0;
+  std::cout << "Done. " << lightest::TimeToMs(clock()) << " ms used."
+            << std::endl;
+  return lightest::globalRegisterData.testData->GetFailed();
 }
 
+/* ========== Configuration Macros ========== */
+
+#define NO_COLOR() lightest::OutputColor = false;
+#define NO_OUTPUT() lightest::toOutput = false;
 
 /* ========= Timer Macros =========== */
 
