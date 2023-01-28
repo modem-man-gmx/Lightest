@@ -81,6 +81,23 @@ inline double TimeToMs(clock_t time) {
   return double(time) / CLOCKS_PER_SEC * 1000;
 }
 
+void PrintFinal(bool failed, clock_t duration) {
+  if (lightest::toOutput) {
+    if (failed) {
+      SetColor(Color::Red);
+      cout << " **FAILED** ";
+    } else {
+      SetColor(Color::Green);
+      cout << " ++PASSED++ ";
+    }
+    SetColor(Color::Reset);
+  } else {
+    cout << "finished " << (failed?"with failure,": "successfully,");
+  }
+  cout << " " << TimeToMs(duration) << " ms used." << endl;
+}
+
+
 // All test data classes should extend from Data
 class Data {
  public:
@@ -109,7 +126,7 @@ class Data {
 // Recursively call Print() to output
 class DataSet : public Data {
  public:
-  DataSet(const char* name) { this->name = name, duration = 0; }
+  DataSet(const char* name_) : failed(false), name(name_), duration(0) {}
   void Add(Data* son) {
     son->SetTabs(GetTabs() + 1);
     if (son->GetFailed()) failed = true;
@@ -143,7 +160,15 @@ class DataSet : public Data {
     cout << " " << name << " " << TimeToMs(duration) << " ms" << endl;
   }
   DataType Type() const { return DATA_SET; }
-  const bool GetFailed() const { return failed; }
+  const bool GetFailed() const {
+    // >>> likely a dirty hack here, because globalRegisterData.testData should get siblings result from other way, but somehow it comes to late?
+    bool fixupFailed = failed;
+    for (const Data* item : sons) {
+      fixupFailed |= item->GetFailed();
+    }
+    // <<< dirty hack end
+    return fixupFailed;
+  }
   clock_t GetDuration() const { return duration; }
   const char* GetName() const { return name; }
   // Should offer a callback to iterate test actions and sub tests' data
@@ -160,10 +185,10 @@ class DataSet : public Data {
 
  private:
   bool failed;
+  const char* name;
   clock_t duration;
   // Data of test actions and sub tests
   vector<const Data*> sons;
-  const char* name;
 };
 
 // Data classes for test actions should to extend from DataUnit,
@@ -234,7 +259,7 @@ class Register {
   void RunRegistered() {
     Context ctx = Context{testData, argn, argc};
     for (const signedFuncWrapper& item : registerList) {
-      item.callerFunc(ctx);
+      item.callerFunc(ctx); // would it not be best to have the OK/FAIL return here and keep it in private: bool failed; ?
     }
   }
   // Restore argn & argc for CONFIG
@@ -255,9 +280,9 @@ class Register {
 int Register::argn = 0;
 char** Register::argc = nullptr;
 
-Register globalRegisterConfig("");
-Register globalRegisterTest("");
-Register globalRegisterData("");
+Register globalRegisterConfig("((Config))");
+Register globalRegisterTest("[[Test]]");
+Register globalRegisterData("{{Data}}");
 
 class Registering {
  public:
@@ -299,8 +324,8 @@ class Testing {
   }
 
  private:
-  const unsigned int level;
   const clock_t start;  // No need to report.
+  const unsigned int level;
   bool failed;
   Register reg;
 };
@@ -360,6 +385,7 @@ class Testing {
 /* ========== Main ========== */
 
 int main(int argn, char* argc[]) {
+  bool finalFailure(true);
   // Offer arn & argc for CONFIG
   lightest::Register::SetArg(argn, argc);
   // Only test registerer need this, for test data will only be added in test
@@ -377,15 +403,11 @@ int main(int argn, char* argc[]) {
   if (lightest::toOutput) {
     lightest::globalRegisterData.testData->PrintSons();
   }
-  std::cout << "Done. " << lightest::TimeToMs(clock()) << " ms used."
-            << std::endl;
-  return lightest::globalRegisterData.testData->GetFailed();
+  finalFailure = lightest::globalRegisterData.testData->GetFailed();
+  lightest::PrintFinal(finalFailure, clock());
+  return finalFailure ? 1 : 0;
 }
 
-/* ========== Configuration Macros ========== */
-
-#define NO_COLOR() lightest::OutputColor = false;
-#define NO_OUTPUT() lightest::toOutput = false;
 
 /* ========= Timer Macros =========== */
 
