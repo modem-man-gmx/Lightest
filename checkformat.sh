@@ -4,4 +4,4 @@
 INC=include/lightest/*.h
 SRC=test/*.cpp
 
-clang-format -i ${INC} ${SRC} && echo "OKAY" || echo "Failed"
+clang-format -n -Werror ${INC} ${SRC} && echo "Format OKAY" || echo "Coding style violation"
