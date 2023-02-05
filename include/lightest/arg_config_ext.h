@@ -6,8 +6,8 @@ configuration to Lightest configuration.
 #ifndef _ARG_CONFIG_H_
 #define _ARG_CONFIG_H_
 
+#include <string>  // Compare string more easily
 #include "lightest.h"
-#include <string> // Compare string more easily
 
 #define ARG_CONFIG()                                                          \
   CONFIG(ArgConfiguration) {                                                  \
